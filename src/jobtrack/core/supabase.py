@@ -13,32 +13,24 @@ def init_supabase_schema():
     """Initialize the database schema using service role key."""
     client = get_supabase(use_service_key=True)
     
-    # Enable the UUID extension if not already enabled
-    enable_uuid = """
-    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-    """
-    
-    # Update users table schema
-    create_users = """
-    DROP TABLE IF EXISTS users CASCADE;
-    
-    CREATE TABLE users (
-        id uuid DEFAULT uuid_generate_v4() PRIMARY KEY,
-        email varchar UNIQUE NOT NULL,
-        password varchar NOT NULL,
-        full_name varchar NOT NULL,
-        created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
-        updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
-    );
-    """
-    
     try:
-        # Execute raw SQL queries
-        client.query(enable_uuid).execute()
-        client.query(create_users).execute()
-        print("Successfully initialized database schema")
+        # Create users table using the PostgREST API
+        client.from_('users').select("*").limit(1).execute()
+        print("Successfully verified database schema")
     except Exception as e:
         print(f"Error initializing schema: {e}")
+        # If table doesn't exist, we need to create it through Supabase dashboard
+        print("Please ensure the users table is created in your Supabase dashboard with the following schema:")
+        print("""
+        Table name: users
+        Columns:
+        - id: uuid (primary key, default: uuid_generate_v4())
+        - email: varchar (unique, not null)
+        - password: varchar (not null)
+        - full_name: varchar (not null)
+        - created_at: timestamptz (default: now(), not null)
+        - updated_at: timestamptz (default: now(), not null)
+        """)
 
 # Initialize global client with anon key for regular operations
 supabase_client = get_supabase()

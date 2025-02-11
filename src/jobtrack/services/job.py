@@ -113,7 +113,17 @@ def create_job(user_id: UUID, job: JobCreate) -> dict:
     """Create a new job entry."""
     client = get_supabase(use_service_key=True)
     
+    # Convert the job model to a dict and handle special field serialization
     job_data = job.model_dump()
+    
+    # Handle URL serialization
+    if job_data.get('job_url'):
+        job_data['job_url'] = str(job_data['job_url'])
+    
+    # Handle date serialization
+    if job_data.get('applied_date'):
+        job_data['applied_date'] = job_data['applied_date'].isoformat()
+    
     job_data['user_id'] = str(user_id)
     job_data['created_at'] = datetime.utcnow().isoformat()
     job_data['updated_at'] = datetime.utcnow().isoformat()
