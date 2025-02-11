@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .core.auth import get_current_user
 from .core.supabase import init_supabase_schema
-from .routes import auth
+from .routes import auth, ai
 from .schemas.job import Job, JobCreate, JobUpdate, JobInteraction, JobInteractionCreate
 from .services.job import (
     create_job,
@@ -48,6 +48,7 @@ async def startup_event():
 
 # Include routers
 app.include_router(auth.router)
+app.include_router(ai.router)
 
 # Frontend routes
 @app.get("/", response_class=HTMLResponse)

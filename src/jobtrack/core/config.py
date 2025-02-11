@@ -21,6 +21,11 @@ class Settings(BaseSettings):
         env='CORS_ORIGINS'
     )
     
+    # OpenAI settings
+    openai_api_key: str = Field(..., env='OPENAI_API_KEY')
+    openai_model: str = Field('gpt-4-turbo-preview', env='OPENAI_MODEL')
+    openai_temperature: float = Field(0.7, env='OPENAI_TEMPERATURE')
+    
     class Config:
         env_file = ".env"
         case_sensitive = False
