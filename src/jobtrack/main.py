@@ -7,12 +7,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 from fastapi import Request
+from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .schemas.token import Token
-from .schemas.user import User, UserCreate
+from .core.auth import get_current_user
+from .core.supabase import init_supabase_schema
+from .routes import auth
 from .schemas.job import Job, JobCreate, JobUpdate, JobInteraction, JobInteractionCreate
-from .services.user import authenticate_user, create_user, get_user_by_email
 from .services.job import (
     create_job,
     get_user_jobs,
@@ -22,11 +23,17 @@ from .services.job import (
     create_job_interaction,
     get_job_interactions
 )
-from .core.security import create_access_token
-from .core.auth import get_current_user
-from .core.supabase import init_supabase_schema
 
 app = FastAPI(title="JobTrack AI")
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="src/jobtrack/static"), name="static")
@@ -38,6 +45,9 @@ templates = Jinja2Templates(directory="src/jobtrack/templates")
 async def startup_event():
     """Initialize database schema on startup"""
     init_supabase_schema()
+
+# Include routers
+app.include_router(auth.router)
 
 # Frontend routes
 @app.get("/", response_class=HTMLResponse)
@@ -56,45 +66,19 @@ async def register_page(request: Request):
 async def dashboard_page(request: Request):
     return templates.TemplateResponse("dashboard.html", {"request": request})
 
-# Authentication endpoints
-@app.post("/token", response_model=Token)
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = authenticate_user(form_data.username, form_data.password)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user["email"]}, expires_delta=access_token_expires
-    )
-    return {"access_token": access_token, "token_type": "bearer"}
-
-@app.post("/users/", response_model=User)
-async def create_new_user(user: UserCreate):
-    db_user = get_user_by_email(user.email)
-    if db_user:
-        raise HTTPException(
-            status_code=400,
-            detail="Email already registered"
-        )
-    return create_user(user=user)
-
 # Job endpoints
 @app.post("/jobs/", response_model=Job)
 async def create_new_job(
     job: JobCreate,
     current_user: User = Depends(get_current_user)
-):
+) -> Any:
     """Create a new job entry."""
     return create_job(current_user.id, job)
 
 @app.get("/jobs/", response_model=List[Job])
 async def read_user_jobs(
     current_user: User = Depends(get_current_user)
-):
+) -> Any:
     """Get all jobs for the current user."""
     return get_user_jobs(current_user.id)
 
@@ -102,46 +86,45 @@ async def read_user_jobs(
 async def read_job(
     job_id: UUID,
     current_user: User = Depends(get_current_user)
-):
+) -> Any:
     """Get a specific job by ID."""
     job = get_job(job_id, current_user.id)
-    if job is None:
+    if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
 
-@app.put("/jobs/{job_id}", response_model=Job)
+@app.patch("/jobs/{job_id}", response_model=Job)
 async def update_existing_job(
     job_id: UUID,
     job_update: JobUpdate,
     current_user: User = Depends(get_current_user)
-):
+) -> Any:
     """Update a job entry."""
-    updated_job = update_job(job_id, current_user.id, job_update)
-    if updated_job is None:
+    job = update_job(job_id, current_user.id, job_update)
+    if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    return updated_job
+    return job
 
 @app.delete("/jobs/{job_id}")
 async def delete_existing_job(
     job_id: UUID,
     current_user: User = Depends(get_current_user)
-):
+) -> Any:
     """Delete a job entry."""
-    success = delete_job(job_id, current_user.id)
-    if not success:
+    if not delete_job(job_id, current_user.id):
         raise HTTPException(status_code=404, detail="Job not found")
-    return {"message": "Job successfully deleted"}
+    return {"message": "Job deleted successfully"}
 
 @app.post("/jobs/{job_id}/interactions/", response_model=JobInteraction)
 async def create_new_job_interaction(
     job_id: UUID,
     interaction: JobInteractionCreate,
     current_user: User = Depends(get_current_user)
-):
+) -> Any:
     """Create a new interaction for a job."""
-    # Verify the job exists and belongs to the user
+    # Verify job exists and belongs to user
     job = get_job(job_id, current_user.id)
-    if job is None:
+    if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
     return create_job_interaction(interaction)
@@ -150,11 +133,11 @@ async def create_new_job_interaction(
 async def read_job_interactions(
     job_id: UUID,
     current_user: User = Depends(get_current_user)
-):
+) -> Any:
     """Get all interactions for a job."""
-    # Verify the job exists and belongs to the user
+    # Verify job exists and belongs to user
     job = get_job(job_id, current_user.id)
-    if job is None:
+    if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
     return get_job_interactions(job_id)
