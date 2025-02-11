@@ -1,23 +1,39 @@
 from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
+from functools import wraps
+
+from .config import settings
 from ..services.user import user_service
 from ..schemas.user import User
 from ..models.user import UserRole
-from .security import get_token_data
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
     """Get the current authenticated user."""
-    token_data = get_token_data(token)
-    user = user_service.get_user_by_email(token_data["email"])
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
     
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials"
+    try:
+        payload = jwt.decode(
+            token,
+            settings.secret_key,
+            algorithms=[settings.algorithm]
         )
+        email: str = payload.get("sub")
+        if email is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    
+    user = user_service.get_user_by_email(email)
+    if user is None:
+        raise credentials_exception
     
     if not user.is_active:
         raise HTTPException(
@@ -36,8 +52,8 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
         )
     return current_user
 
-def get_current_admin_user(current_user: User = Depends(get_current_user)) -> User:
-    """Get the current admin user."""
+async def get_current_admin_user(current_user: User = Depends(get_current_user)) -> User:
+    """Get the current authenticated admin user."""
     if current_user.role != UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -46,12 +62,15 @@ def get_current_admin_user(current_user: User = Depends(get_current_user)) -> Us
     return current_user
 
 def check_permissions(*allowed_roles: UserRole):
-    """Decorator to check user roles."""
-    async def role_checker(current_user: User = Depends(get_current_user)) -> User:
-        if not allowed_roles or current_user.role in allowed_roles:
-            return current_user
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not enough permissions"
-        )
-    return role_checker
+    """Decorator to check user role permissions."""
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, current_user: User = Depends(get_current_user), **kwargs):
+            if current_user.role not in allowed_roles:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Not enough permissions"
+                )
+            return await func(*args, current_user=current_user, **kwargs)
+        return wrapper
+    return decorator

@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import List, Optional
+from typing import List, Optional, Any
 from uuid import UUID
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -9,11 +9,12 @@ from fastapi.responses import HTMLResponse
 from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from .config import settings
+from .core.config import settings
 from .core.auth import get_current_user
 from .core.supabase import init_supabase_schema
 from .routes import auth, ai
 from .schemas.job import Job, JobCreate, JobUpdate, JobInteraction, JobInteractionCreate
+from .schemas.user import User
 from .services.job import (
     create_job,
     get_user_jobs,
